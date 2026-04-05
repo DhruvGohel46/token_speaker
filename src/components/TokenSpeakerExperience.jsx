@@ -18,6 +18,11 @@ import { useFinePointer } from "@/hooks/useFinePointer";
 import { useNarrowScreen } from "@/hooks/useNarrowScreen";
 import { fetchCurrentToken } from "@/utils/api";
 import { parseTokenPayload } from "@/utils/tokenPayload";
+import {
+  listVoicesForPicker,
+  pickPreferredVoice,
+  resolveVoiceByUri,
+} from "@/utils/speechVoices";
 
 function AmbientField() {
   const mx = useMotionValue(0.5);
@@ -107,6 +112,11 @@ export function TokenSpeakerExperience() {
 
   const [tokenInput, setTokenInput] = useState("");
   const [rate, setRate] = useState(1);
+  /** Slightly below 1.0 reads warmer and less “chipmunk” on most engines. */
+  const [pitch, setPitch] = useState(0.96);
+  const [speechVoices, setSpeechVoices] = useState([]);
+  /** Empty string = automatic (pick richest available voice). */
+  const [voiceUri, setVoiceUri] = useState("");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [banner, setBanner] = useState(null);
@@ -131,6 +141,32 @@ export function TokenSpeakerExperience() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+
+    const refresh = () => {
+      setSpeechVoices(window.speechSynthesis.getVoices());
+    };
+
+    refresh();
+    window.speechSynthesis.addEventListener("voiceschanged", refresh);
+    return () =>
+      window.speechSynthesis.removeEventListener("voiceschanged", refresh);
+  }, []);
+
+  const pickerVoices = useMemo(
+    () => listVoicesForPicker(speechVoices),
+    [speechVoices],
+  );
+
+  const resolvedVoice = useMemo(() => {
+    if (!speechVoices.length) return null;
+    return (
+      resolveVoiceByUri(speechVoices, voiceUri) ||
+      pickPreferredVoice(speechVoices)
+    );
+  }, [speechVoices, voiceUri]);
+
   const speakLoop = useCallback(() => {
     if (typeof window === "undefined" || !window.speechSynthesis) {
       pushBanner("error", "Speech synthesis is not available in this browser.");
@@ -141,9 +177,21 @@ export function TokenSpeakerExperience() {
 
     if (!runningRef.current) return;
 
+    const allVoices = window.speechSynthesis.getVoices();
+    const voice =
+      resolveVoiceByUri(allVoices, voiceUri) || pickPreferredVoice(allVoices);
+
     const phrase = `Token no ${normalizedToken}`;
     const utterance = new SpeechSynthesisUtterance(phrase);
     utterance.rate = rate;
+    utterance.pitch = pitch;
+    utterance.volume = 1;
+    if (voice) {
+      utterance.voice = voice;
+      utterance.lang = voice.lang || "en-US";
+    } else {
+      utterance.lang = "en-US";
+    }
 
     utterance.onend = () => {
       if (!runningRef.current) return;
@@ -161,7 +209,7 @@ export function TokenSpeakerExperience() {
 
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
-  }, [normalizedToken, pushBanner, rate]);
+  }, [normalizedToken, pitch, pushBanner, rate, voiceUri]);
 
   const startSpeaking = useCallback(() => {
     if (!hasToken) {
@@ -177,6 +225,8 @@ export function TokenSpeakerExperience() {
       pushBanner("error", "Speech synthesis is not available in this browser.");
       return;
     }
+
+    window.speechSynthesis.getVoices();
 
     runningRef.current = true;
     setIsSpeaking(true);
@@ -349,6 +399,81 @@ export function TokenSpeakerExperience() {
                     />
                   </div>
 
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="tts-voice"
+                      className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground-muted)] sm:text-xs sm:tracking-[0.18em]"
+                    >
+                      Voice (natural / neural)
+                    </label>
+                    <select
+                      id="tts-voice"
+                      value={voiceUri}
+                      onChange={(e) => setVoiceUri(e.target.value)}
+                      onFocus={() => {
+                        if (typeof window !== "undefined" && window.speechSynthesis) {
+                          window.speechSynthesis.getVoices();
+                        }
+                      }}
+                      className="min-h-12 w-full cursor-pointer rounded-2xl border border-[var(--glass-border)] bg-white/70 px-4 py-3 pr-10 text-sm text-[var(--foreground)] shadow-sm outline-none transition focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--ring)] dark:bg-slate-950/40"
+                      style={{
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23475569'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: "no-repeat",
+                        backgroundPosition: "right 0.75rem center",
+                        backgroundSize: "1.1rem",
+                      }}
+                    >
+                      <option value="">
+                        Automatic — richest voice on this device
+                      </option>
+                      {pickerVoices.map((v) => (
+                        <option key={v.voiceURI} value={v.voiceURI}>
+                          {v.name}
+                          {v.lang ? ` (${v.lang})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] leading-snug text-[var(--foreground-muted)] sm:text-[11px]">
+                      Prefer names with{" "}
+                      <span className="font-medium text-[var(--foreground)]">
+                        Neural
+                      </span>
+                      ,{" "}
+                      <span className="font-medium text-[var(--foreground)]">
+                        Natural
+                      </span>
+                      , or{" "}
+                      <span className="font-medium text-[var(--foreground)]">
+                        Premium
+                      </span>
+                      . Edge and Safari often ship the most lifelike options.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground-muted)] sm:text-xs sm:tracking-[0.18em]">
+                        Tone richness
+                      </span>
+                      <span className="font-mono text-[10px] text-[var(--foreground-muted)] sm:text-xs">
+                        {pitch.toFixed(2)}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.88}
+                      max={1.05}
+                      step={0.01}
+                      value={pitch}
+                      onChange={(e) => setPitch(Number(e.target.value))}
+                      className="h-3 w-full cursor-pointer appearance-none rounded-full bg-slate-200/80 accent-[var(--accent)] sm:h-2 dark:bg-slate-800/80"
+                    />
+                    <p className="text-[10px] text-[var(--foreground-muted)] sm:text-[11px]">
+                      Lower is warmer and fuller; higher is brighter. Default
+                      leans human rather than robotic.
+                    </p>
+                  </div>
+
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <motion.button
                       type="button"
@@ -409,6 +534,19 @@ export function TokenSpeakerExperience() {
                         ? `Repeating: “Token no ${normalizedToken}”`
                         : "Waiting for a token to announce."}
                     </p>
+                    {resolvedVoice ? (
+                      <p className="mt-2 text-[10px] leading-snug text-[var(--foreground-muted)] sm:text-[11px]">
+                        Active voice:{" "}
+                        <span className="font-medium text-[var(--foreground)]">
+                          {resolvedVoice.name}
+                        </span>
+                      </p>
+                    ) : speechVoices.length === 0 ? (
+                      <p className="mt-2 text-[10px] text-[var(--foreground-muted)] sm:text-[11px]">
+                        Loading voices… tap Start once if the list stays empty
+                        (browser quirk).
+                      </p>
+                    ) : null}
                     {isSpeaking ? (
                       <motion.div
                         className="mt-3 flex items-center gap-2"

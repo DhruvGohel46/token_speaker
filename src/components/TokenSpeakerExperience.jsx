@@ -367,16 +367,52 @@ export function TokenSpeakerExperience() {
                     >
                       Token number
                     </label>
-                    <input
-                      id="token"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      autoComplete="off"
-                      placeholder="e.g. 428"
-                      value={tokenInput}
-                      onChange={(e) => setTokenInput(e.target.value.replace(/\D/g, ""))}
-                      className="min-h-12 w-full rounded-2xl border border-[var(--glass-border)] bg-white/70 px-4 py-3.5 font-mono text-base tracking-wide text-[var(--foreground)] shadow-sm outline-none transition-all duration-300 placeholder:text-slate-400 focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--ring)] focus:ring-0 sm:min-h-0 sm:text-lg dark:bg-slate-950/40 dark:placeholder:text-slate-500"
-                    />
+                    <div className="flex flex-row items-stretch gap-2 sm:block sm:space-y-0">
+                      <input
+                        id="token"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        autoComplete="off"
+                        placeholder="e.g. 428"
+                        value={tokenInput}
+                        onChange={(e) =>
+                          setTokenInput(e.target.value.replace(/\D/g, ""))
+                        }
+                        className="min-h-12 min-w-0 flex-1 rounded-2xl border border-[var(--glass-border)] bg-white/70 px-3 py-3.5 font-mono text-base tracking-wide text-[var(--foreground)] shadow-sm outline-none transition-all duration-300 placeholder:text-slate-400 focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--ring)] focus:ring-0 sm:w-full sm:px-4 sm:text-lg dark:bg-slate-950/40 dark:placeholder:text-slate-500"
+                      />
+                      {!isSpeaking ? (
+                        <ClickSparkWrap
+                          sparkColor="var(--accent)"
+                          sparkCount={12}
+                          sparkRadius={22}
+                          className="shrink-0 sm:hidden"
+                        >
+                          <motion.button
+                            type="button"
+                            whileTap={{ scale: 0.97 }}
+                            onClick={startSpeaking}
+                            aria-label="Start speaking"
+                            className="inline-flex h-12 touch-manipulation items-center justify-center gap-1.5 rounded-2xl bg-[var(--accent)] px-3.5 text-sm font-semibold text-[var(--accent-foreground)] shadow-lift active:brightness-95 dark:shadow-lift-dark"
+                          >
+                            <IoPlayOutline className="text-xl shrink-0" aria-hidden />
+                            <span className="max-w-[4.5rem] leading-tight">
+                              Start
+                            </span>
+                          </motion.button>
+                        </ClickSparkWrap>
+                      ) : (
+                        <motion.button
+                          type="button"
+                          whileTap={{ scale: 0.97 }}
+                          onClick={stopSpeaking}
+                          aria-label="Stop announcements"
+                          className="inline-flex h-12 shrink-0 touch-manipulation items-center justify-center gap-1.5 rounded-2xl border border-[var(--danger)] bg-[var(--danger)]/10 px-3.5 text-sm font-semibold text-[var(--danger)] shadow-sm active:brightness-95 sm:hidden"
+                        >
+                          <IoStopOutline className="text-xl shrink-0" aria-hidden />
+                          <span className="max-w-[4.5rem] leading-tight">Stop</span>
+                        </motion.button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -474,14 +510,14 @@ export function TokenSpeakerExperience() {
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="flex flex-col gap-3 sm:grid sm:grid-cols-2 sm:gap-3">
                     <motion.button
                       type="button"
                       whileHover={finePointer ? { scale: 1.02, y: -1 } : {}}
                       whileTap={{ scale: 0.98 }}
                       disabled={loading}
                       onClick={syncFromApi}
-                      className="inline-flex min-h-12 touch-manipulation items-center justify-center gap-2 rounded-2xl border border-[var(--glass-border)] bg-white/60 px-4 py-3.5 text-base font-semibold text-[var(--foreground)] shadow-sm transition enabled:active:scale-[0.99] enabled:hover:border-[var(--accent)] enabled:hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0 sm:py-3 sm:text-sm dark:bg-slate-950/35"
+                      className="inline-flex min-h-12 w-full touch-manipulation items-center justify-center gap-2 rounded-2xl border border-[var(--glass-border)] bg-white/60 px-4 py-3.5 text-base font-semibold text-[var(--foreground)] shadow-sm transition enabled:active:scale-[0.99] enabled:hover:border-[var(--accent)] enabled:hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0 sm:py-3 sm:text-sm dark:bg-slate-950/35"
                     >
                       <motion.span
                         animate={loading ? { rotate: 360 } : { rotate: 0 }}
@@ -501,7 +537,7 @@ export function TokenSpeakerExperience() {
                         sparkColor="var(--accent)"
                         sparkCount={14}
                         sparkRadius={26}
-                        className="w-full"
+                        className="hidden w-full sm:block"
                       >
                         <motion.button
                           type="button"
@@ -520,7 +556,7 @@ export function TokenSpeakerExperience() {
                         whileHover={finePointer ? { scale: 1.03, y: -2 } : {}}
                         whileTap={{ scale: 0.97 }}
                         onClick={stopSpeaking}
-                        className="inline-flex min-h-12 w-full touch-manipulation items-center justify-center gap-2 rounded-2xl border border-[var(--danger)] bg-[var(--danger)]/10 px-4 py-3.5 text-base font-semibold text-[var(--danger)] shadow-sm active:brightness-95 sm:col-span-2 sm:min-h-0 sm:py-3 sm:text-sm"
+                        className="hidden min-h-12 w-full touch-manipulation items-center justify-center gap-2 rounded-2xl border border-[var(--danger)] bg-[var(--danger)]/10 px-4 py-3.5 text-base font-semibold text-[var(--danger)] shadow-sm active:brightness-95 sm:col-span-2 sm:flex sm:min-h-0 sm:py-3 sm:text-sm"
                       >
                         <IoStopOutline className="text-xl sm:text-lg" aria-hidden />
                         Stop announcements

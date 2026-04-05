@@ -19,10 +19,12 @@ import { useNarrowScreen } from "@/hooks/useNarrowScreen";
 import { fetchCurrentToken } from "@/utils/api";
 import { parseTokenPayload } from "@/utils/tokenPayload";
 import {
-  listVoicesForPicker,
-  pickPreferredVoice,
-  resolveVoiceByUri,
+  pickEnglishIndiaVoice,
+  pickGujaratiVoice,
 } from "@/utils/speechVoices";
+
+const phraseEnglishIndia = (token) => `Token number ${token}`;
+const phraseGujarati = (token) => `ટોકન નંબર ${token}`;
 
 function AmbientField() {
   const mx = useMotionValue(0.5);
@@ -98,8 +100,12 @@ function EmptyTokenState() {
       />
       <p className="relative text-sm leading-relaxed text-[var(--foreground-muted)] text-balance-safe">
         Enter a token number or sync from your live queue API. The desk will
-        announce{" "}
-        <span className="font-mono text-[var(--foreground)]">Token no ···</span>{" "}
+        announce in{" "}
+        <span className="font-medium text-[var(--foreground)]">
+          English (India)
+        </span>
+        , then{" "}
+        <span className="font-medium text-[var(--foreground)]">Gujarati</span>,
         on repeat until you stop.
       </p>
     </motion.div>
@@ -115,8 +121,6 @@ export function TokenSpeakerExperience() {
   /** Slightly below 1.0 reads warmer and less “chipmunk” on most engines. */
   const [pitch, setPitch] = useState(0.96);
   const [speechVoices, setSpeechVoices] = useState([]);
-  /** Empty string = automatic (pick richest available voice). */
-  const [voiceUri, setVoiceUri] = useState("");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [banner, setBanner] = useState(null);
@@ -154,18 +158,13 @@ export function TokenSpeakerExperience() {
       window.speechSynthesis.removeEventListener("voiceschanged", refresh);
   }, []);
 
-  const pickerVoices = useMemo(
-    () => listVoicesForPicker(speechVoices),
-    [speechVoices],
-  );
-
-  const resolvedVoice = useMemo(() => {
-    if (!speechVoices.length) return null;
-    return (
-      resolveVoiceByUri(speechVoices, voiceUri) ||
-      pickPreferredVoice(speechVoices)
-    );
-  }, [speechVoices, voiceUri]);
+  const bilingualVoices = useMemo(() => {
+    if (!speechVoices.length) return { enIn: null, gu: null };
+    return {
+      enIn: pickEnglishIndiaVoice(speechVoices),
+      gu: pickGujaratiVoice(speechVoices),
+    };
+  }, [speechVoices]);
 
   const speakLoop = useCallback(() => {
     if (typeof window === "undefined" || !window.speechSynthesis) {
@@ -178,38 +177,59 @@ export function TokenSpeakerExperience() {
     if (!runningRef.current) return;
 
     const allVoices = window.speechSynthesis.getVoices();
-    const voice =
-      resolveVoiceByUri(allVoices, voiceUri) || pickPreferredVoice(allVoices);
+    const enVoice = pickEnglishIndiaVoice(allVoices);
+    const guVoice = pickGujaratiVoice(allVoices);
 
-    const phrase = `Token no ${normalizedToken}`;
-    const utterance = new SpeechSynthesisUtterance(phrase);
-    utterance.rate = rate;
-    utterance.pitch = pitch;
-    utterance.volume = 1;
-    if (voice) {
-      utterance.voice = voice;
-      utterance.lang = voice.lang || "en-US";
-    } else {
-      utterance.lang = "en-US";
+    if (!enVoice || !guVoice) {
+      pushBanner(
+        "error",
+        "English (India) and Gujarati voices are required. Add both in your device language / speech settings, then refresh this page.",
+      );
+      runningRef.current = false;
+      setIsSpeaking(false);
+      return;
     }
 
-    utterance.onend = () => {
+    const enText = phraseEnglishIndia(normalizedToken);
+    const guText = phraseGujarati(normalizedToken);
+
+    const scheduleNextCycle = (delayMs) => {
       if (!runningRef.current) return;
       gapTimeoutRef.current = window.setTimeout(() => {
         speakLoop();
-      }, 160);
+      }, delayMs);
     };
 
-    utterance.onerror = () => {
-      if (!runningRef.current) return;
-      gapTimeoutRef.current = window.setTimeout(() => {
-        speakLoop();
-      }, 320);
+    const speakGujarati = () => {
+      const u = new SpeechSynthesisUtterance(guText);
+      u.voice = guVoice;
+      u.lang = guVoice.lang || "gu-IN";
+      u.rate = rate;
+      u.pitch = pitch;
+      u.volume = 1;
+      u.onend = () => scheduleNextCycle(200);
+      u.onerror = () => scheduleNextCycle(380);
+      window.speechSynthesis.speak(u);
+    };
+
+    const speakEnglish = () => {
+      const u = new SpeechSynthesisUtterance(enText);
+      u.voice = enVoice;
+      u.lang = enVoice.lang || "en-IN";
+      u.rate = rate;
+      u.pitch = pitch;
+      u.volume = 1;
+      u.onend = () => {
+        if (!runningRef.current) return;
+        speakGujarati();
+      };
+      u.onerror = () => scheduleNextCycle(380);
+      window.speechSynthesis.speak(u);
     };
 
     window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-  }, [normalizedToken, pitch, pushBanner, rate, voiceUri]);
+    speakEnglish();
+  }, [normalizedToken, pitch, pushBanner, rate]);
 
   const startSpeaking = useCallback(() => {
     if (!hasToken) {
@@ -226,7 +246,14 @@ export function TokenSpeakerExperience() {
       return;
     }
 
-    window.speechSynthesis.getVoices();
+    const allVoices = window.speechSynthesis.getVoices();
+    if (!pickEnglishIndiaVoice(allVoices) || !pickGujaratiVoice(allVoices)) {
+      pushBanner(
+        "error",
+        "Install English (India) and Gujarati text-to-speech voices on this device (Settings → Language / Accessibility → Text-to-speech), then try again.",
+      );
+      return;
+    }
 
     runningRef.current = true;
     setIsSpeaking(true);
@@ -319,7 +346,7 @@ export function TokenSpeakerExperience() {
                   Repeat the call until the floor is clear.
                 </h2>
                 <p className="max-w-xl text-pretty text-sm leading-relaxed text-[var(--foreground-muted)] sm:text-base">
-                  <TextReveal text="Token Speaker keeps the announcement disciplined: same phrase, same cadence, and an obvious stop control for your front desk team." />
+                  <TextReveal text="Token Speaker alternates English (India) and Gujarati for each token, then loops until you stop—clear for mixed queues at the desk." />
                 </p>
               </div>
             </ScrollReveal>
@@ -436,54 +463,35 @@ export function TokenSpeakerExperience() {
                   </div>
 
                   <div className="space-y-2">
-                    <label
-                      htmlFor="tts-voice"
-                      className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground-muted)] sm:text-xs sm:tracking-[0.18em]"
-                    >
-                      Voice (natural / neural)
-                    </label>
-                    <select
-                      id="tts-voice"
-                      value={voiceUri}
-                      onChange={(e) => setVoiceUri(e.target.value)}
-                      onFocus={() => {
-                        if (typeof window !== "undefined" && window.speechSynthesis) {
-                          window.speechSynthesis.getVoices();
-                        }
-                      }}
-                      className="min-h-12 w-full cursor-pointer rounded-2xl border border-[var(--glass-border)] bg-white/70 px-4 py-3 pr-10 text-sm text-[var(--foreground)] shadow-sm outline-none transition focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--ring)] dark:bg-slate-950/40"
-                      style={{
-                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23475569'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`,
-                        backgroundRepeat: "no-repeat",
-                        backgroundPosition: "right 0.75rem center",
-                        backgroundSize: "1.1rem",
-                      }}
-                    >
-                      <option value="">
-                        Automatic — richest voice on this device
-                      </option>
-                      {pickerVoices.map((v) => (
-                        <option key={v.voiceURI} value={v.voiceURI}>
-                          {v.name}
-                          {v.lang ? ` (${v.lang})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[10px] leading-snug text-[var(--foreground-muted)] sm:text-[11px]">
-                      Prefer names with{" "}
-                      <span className="font-medium text-[var(--foreground)]">
-                        Neural
-                      </span>
-                      ,{" "}
-                      <span className="font-medium text-[var(--foreground)]">
-                        Natural
-                      </span>
-                      , or{" "}
-                      <span className="font-medium text-[var(--foreground)]">
-                        Premium
-                      </span>
-                      . Edge and Safari often ship the most lifelike options.
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--foreground-muted)] sm:text-xs sm:tracking-[0.18em]">
+                      Voices (English India → Gujarati)
                     </p>
+                    <div className="rounded-2xl border border-[var(--glass-border)] bg-white/50 px-3 py-3 text-[11px] leading-relaxed text-[var(--foreground-muted)] dark:bg-slate-950/35 sm:px-4 sm:text-xs">
+                      <p>
+                        <span className="font-semibold text-[var(--foreground)]">
+                          English (India)
+                        </span>
+                        <span className="mx-1 text-[var(--foreground-muted)]">·</span>
+                        <span className="text-[var(--foreground)]">
+                          {bilingualVoices.enIn?.name ?? "Not installed"}
+                        </span>
+                      </p>
+                      <p className="mt-2">
+                        <span className="font-semibold text-[var(--foreground)]">
+                          Gujarati
+                        </span>
+                        <span className="mx-1 text-[var(--foreground-muted)]">·</span>
+                        <span className="text-[var(--foreground)]">
+                          {bilingualVoices.gu?.name ?? "Not installed"}
+                        </span>
+                      </p>
+                      <p className="mt-3 text-[10px] text-[var(--foreground-muted)] sm:text-[11px]">
+                        Each cycle speaks English first, then Gujarati, then
+                        repeats until Stop. Add both languages under system
+                        speech / TTS settings if either line shows “Not
+                        installed”.
+                      </p>
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -567,22 +575,31 @@ export function TokenSpeakerExperience() {
                   <div className="rounded-2xl border border-dashed border-[var(--glass-border)] bg-white/40 px-3 py-3 text-[11px] text-[var(--foreground-muted)] sm:px-4 sm:text-xs dark:bg-slate-950/30">
                     <p className="font-mono text-[10px] leading-relaxed text-[var(--foreground)] sm:text-[11px]">
                       {hasToken
-                        ? `Repeating: “Token no ${normalizedToken}”`
+                        ? `Loop: EN → GU · “${phraseEnglishIndia(normalizedToken)}” then “${phraseGujarati(normalizedToken)}”`
                         : "Waiting for a token to announce."}
                     </p>
-                    {resolvedVoice ? (
+                    {bilingualVoices.enIn && bilingualVoices.gu ? (
                       <p className="mt-2 text-[10px] leading-snug text-[var(--foreground-muted)] sm:text-[11px]">
-                        Active voice:{" "}
+                        Using{" "}
                         <span className="font-medium text-[var(--foreground)]">
-                          {resolvedVoice.name}
+                          {bilingualVoices.enIn.name}
+                        </span>
+                        {" · "}
+                        <span className="font-medium text-[var(--foreground)]">
+                          {bilingualVoices.gu.name}
                         </span>
                       </p>
                     ) : speechVoices.length === 0 ? (
                       <p className="mt-2 text-[10px] text-[var(--foreground-muted)] sm:text-[11px]">
-                        Loading voices… tap Start once if the list stays empty
-                        (browser quirk).
+                        Loading voices… open this screen again or tap Start if
+                        the list stays empty.
                       </p>
-                    ) : null}
+                    ) : (
+                      <p className="mt-2 text-[10px] leading-snug text-[var(--danger)] sm:text-[11px]">
+                        {!bilingualVoices.enIn ? "Add English (India) voice. " : ""}
+                        {!bilingualVoices.gu ? "Add Gujarati voice." : ""}
+                      </p>
+                    )}
                     {isSpeaking ? (
                       <motion.div
                         className="mt-3 flex items-center gap-2"

@@ -10,7 +10,9 @@ function scoreVoice(v) {
   let score = 0;
 
   if (lang.startsWith("en")) score += 24;
+  if (lang === "en-in" || lang.startsWith("en-in-")) score += 18;
   if (lang === "en-us" || lang === "en-gb" || lang === "en_gb") score += 10;
+  if (lang === "gu-in" || lang === "gu" || lang.startsWith("gu-in-")) score += 18;
 
   if (POSITIVE.test(name)) score += 48;
   if (NEGATIVE.test(name)) score -= 70;
@@ -58,4 +60,30 @@ export function listVoicesForPicker(voices, { max = 80 } = {}) {
     if (out.length >= max) break;
   }
   return out;
+}
+
+function normalizeLangTag(lang) {
+  return (lang || "").toLowerCase().replace("_", "-");
+}
+
+// Picks the best English (India) voice (en-IN) for announcements.
+export function pickEnglishIndiaVoice(voices) {
+  if (!voices?.length) return null;
+  const candidates = voices.filter((v) => {
+    const l = normalizeLangTag(v.lang);
+    return l === "en-in" || l.startsWith("en-in-");
+  });
+  if (!candidates.length) return null;
+  return [...candidates].sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
+}
+
+// Picks the best Gujarati voice (gu-IN / gu) for announcements.
+export function pickGujaratiVoice(voices) {
+  if (!voices?.length) return null;
+  const candidates = voices.filter((v) => {
+    const l = normalizeLangTag(v.lang);
+    return l === "gu-in" || l === "gu" || l.startsWith("gu-in-");
+  });
+  if (!candidates.length) return null;
+  return [...candidates].sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
 }
